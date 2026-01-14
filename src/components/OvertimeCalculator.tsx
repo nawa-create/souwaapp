@@ -82,9 +82,7 @@ export default function OvertimeCalculator() {
     // 終了時刻（日をまたぐ場合を考慮）
     let workEndMinutes = startMinutes + totalMinutes;
 
-    // 実休憩時間を計算
-    // +: 休憩1時間未満（例: +0:15 → 実休憩45分）
-    // -: 休憩1時間超過（例: -0:30 → 実休憩1:30）
+    // 実休憩時間を計算（祝日・法定休日の実労働時間計算用）
     const actualBreakMinutes = breakSign === '+' 
       ? (60 - breakDiffMinutes)
       : (60 + breakDiffMinutes);
@@ -93,10 +91,10 @@ export default function OvertimeCalculator() {
     const LATE_NIGHT_END = 5 * 60; // 5:00
     // 5:00より前に開始 → 22:00から深夜、5:00以降に開始 → 22:15から深夜
     const LATE_NIGHT_START = startMinutes < LATE_NIGHT_END ? 22 * 60 : 22 * 60 + 15;
-    const STANDARD_WORK = 8 * 60; // 所定労働8時間
+    const STANDARD_WITH_BREAK = 9 * 60; // 所定8時間 + 休憩基準1時間 = 9時間（固定）
 
-    // 基準終了時刻 = 開始 + 8時間 + 実休憩時間
-    const standardEndMinutes = startMinutes + STANDARD_WORK + actualBreakMinutes;
+    // 基準終了時刻 = 開始 + 9時間（固定）
+    const standardEndMinutes = startMinutes + STANDARD_WITH_BREAK;
 
     // 残業時間 = 終了時刻 - 基準終了時刻（マイナスなら0）
     const overtimeMinutes = Math.max(0, workEndMinutes - standardEndMinutes);
@@ -159,37 +157,34 @@ export default function OvertimeCalculator() {
     }
     // ========== 土曜: 8時間超が残業 ==========
     else if (isSaturday) {
+      // 内深夜 = 深夜帯で勤務した時間（残業と独立）
+      calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes);
+
       if (overtimeMinutes > 0) {
-        // 残業がある場合
-        // 深夜帯の時間を、残業→土曜深夜、所定内→内深夜に振り分け
+        // 残業を深夜帯と早出帯に振り分け
+        // 残業のうち深夜帯にかかる分を計算
         const lateNightOvertimeMinutes = Math.min(lateNightMinutes, overtimeMinutes);
-        const innerLateNightMinutes = Math.max(0, lateNightMinutes - lateNightOvertimeMinutes);
         const normalOvertimeMinutes = overtimeMinutes - lateNightOvertimeMinutes;
 
         calculationResult.saturday_late_night_hours = minutesToHours(lateNightOvertimeMinutes);
         calculationResult.saturday_hours = minutesToHours(normalOvertimeMinutes) + minutesToHours(transferMinutes);
-        calculationResult.inner_late_night_hours = minutesToHours(innerLateNightMinutes);
-      } else {
-        // 残業なし: 深夜帯は全て内深夜
-        calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes);
       }
     }
     // ========== 平日: 8時間超が残業 ==========
     else {
+      // 内深夜 = 深夜帯で勤務した時間（残業と独立）
+      calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes);
+
       if (overtimeMinutes > 0) {
-        // 残業がある場合
-        // 深夜帯の時間を、残業→深夜時間、所定内→内深夜に振り分け
+        // 残業を深夜帯と早出帯に振り分け
+        // 残業のうち深夜帯にかかる分を計算
         const lateNightOvertimeMinutes = Math.min(lateNightMinutes, overtimeMinutes);
-        const innerLateNightMinutes = Math.max(0, lateNightMinutes - lateNightOvertimeMinutes);
         const normalOvertimeMinutes = overtimeMinutes - lateNightOvertimeMinutes;
 
         calculationResult.late_night_hours = minutesToHours(lateNightOvertimeMinutes);
         calculationResult.early_hours = minutesToHours(normalOvertimeMinutes) + minutesToHours(transferMinutes);
-        calculationResult.inner_late_night_hours = minutesToHours(innerLateNightMinutes);
       } else {
-        // 残業なし: 深夜帯は全て内深夜
-        calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes);
-        // 乗り換え時間があれば早出に加算
+        // 残業なしでも乗り換え時間があれば早出に加算
         if (transferMinutes > 0) {
           calculationResult.early_hours = minutesToHours(transferMinutes);
         }
@@ -745,7 +740,6 @@ export default function OvertimeCalculator() {
                     <span className="text-gray-800">合計時間:</span>
                     <span className="text-blue-600">{formatHours(
                       result.late_night_hours +
-                      result.inner_late_night_hours +
                       result.early_hours +
                       result.saturday_hours +
                       result.saturday_late_night_hours +
