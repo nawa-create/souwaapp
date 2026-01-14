@@ -860,6 +860,7 @@ export default function OvertimeCalculator() {
                     <span className="text-gray-800">合計時間:</span>
                     <span className="text-blue-600">{formatHours(
                       result.late_night_hours +
+                      result.inner_late_night_hours +
                       result.early_hours +
                       result.saturday_hours +
                       result.saturday_late_night_hours +
