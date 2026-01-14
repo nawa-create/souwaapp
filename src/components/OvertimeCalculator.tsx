@@ -221,19 +221,36 @@ export default function OvertimeCalculator() {
       }
     } else {
       if (!isOver8Hours) {
-        if (startMinutes < lateNightEnd) {
-          const innerLateNightMinutes = Math.min(totalMinutes, lateNightEnd - startMinutes);
-          calculationResult.inner_late_night_hours = minutesToHours(innerLateNightMinutes);
+        let innerLateNightMinutes = 0;
+        let earlyMinutes = 0;
 
-          if (breakSign === '+') {
-            calculationResult.early_hours = minutesToHours(breakDiffMinutes) + minutesToHours(transferMinutes);
+        // 1. 休憩不足分（breakSign === '+'）の処理
+        // 勤務開始時刻から遡って、深夜帯（0:00〜5:00）に該当する分を内深夜時間に
+        if (breakSign === '+' && breakDiffMinutes > 0) {
+          for (let i = 1; i <= breakDiffMinutes; i++) {
+            const checkTime = (startMinutes - i + 24 * 60) % (24 * 60);
+            // 0:00〜5:00の深夜帯にあるかチェック
+            if (checkTime < lateNightEnd) {
+              innerLateNightMinutes++;
+            } else {
+              earlyMinutes++;
+            }
           }
         }
 
+        // 2. 実際の勤務時間内の内深夜時間（勤務開始が5:00より前の場合）
+        if (startMinutes < lateNightEnd) {
+          innerLateNightMinutes += Math.min(totalMinutes, lateNightEnd - startMinutes);
+        }
+
+        calculationResult.inner_late_night_hours = minutesToHours(innerLateNightMinutes);
+        calculationResult.early_hours = minutesToHours(earlyMinutes) + minutesToHours(transferMinutes);
+
+        // 3. 22:15以降の早出時間（休憩不足分がない場合）
         const endTime22_15 = 22 * 60 + 15;
-        if (startMinutes >= lateNightEnd && (startMinutes + totalMinutes) > endTime22_15) {
-          const earlyMinutes = Math.max(0, (startMinutes + totalMinutes) - endTime22_15);
-          calculationResult.early_hours = minutesToHours(earlyMinutes) + minutesToHours(transferMinutes);
+        if (breakSign !== '+' && startMinutes >= lateNightEnd && (startMinutes + totalMinutes) > endTime22_15) {
+          const additionalEarlyMinutes = Math.max(0, (startMinutes + totalMinutes) - endTime22_15);
+          calculationResult.early_hours = minutesToHours(additionalEarlyMinutes) + minutesToHours(transferMinutes);
         }
       } else {
         let lateNightMinutes = 0;
