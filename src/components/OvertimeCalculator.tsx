@@ -71,25 +71,38 @@ export default function OvertimeCalculator() {
     const startMinutes = timeToMinutes(startTime);
     const endMinutes = timeToMinutes(endTime);
     const breakDiffMinutes = timeToMinutes(breakTime);
+    const transferMinutes = timeToMinutes(transferTime);
 
-    const actualBreakMinutes = breakSign === '+'
-      ? 60 - breakDiffMinutes
-      : breakDiffMinutes;
-
+    // 拘束時間を計算
     let totalMinutes = endMinutes - startMinutes;
     if (totalMinutes < 0) {
       totalMinutes += 24 * 60;
     }
 
+    // 実休憩時間を計算
+    // +: 休憩1時間未満（例: +0:15 → 実休憩45分）
+    // -: 休憩1時間超過（例: -0:30 → 実休憩1:30）
+    const actualBreakMinutes = breakSign === '+' 
+      ? (60 - breakDiffMinutes)
+      : (60 + breakDiffMinutes);
+
+    // 実労働時間を計算
     const totalWorkTime = totalMinutes - actualBreakMinutes;
-    const lateNightStart = 22 * 60;
-    const lateNightEnd = 5 * 60;
-    const standardWorkMinutes = 8 * 60;
-    const standardWithBreakMinutes = 9 * 60;
-    const transferMinutes = timeToMinutes(transferTime);
 
-    const isOver8Hours = totalWorkTime > standardWithBreakMinutes;
+    // 深夜帯の設定
+    const LATE_NIGHT_END = 5 * 60; // 5:00
+    // 5:00より前に開始 → 22:00から深夜、5:00以降に開始 → 22:15から深夜
+    const LATE_NIGHT_START = startMinutes < LATE_NIGHT_END ? 22 * 60 : 22 * 60 + 15;
+    const STANDARD_WORK = 8 * 60; // 所定労働8時間
 
+    // 休憩マイナスの場合、深夜帯判定用の終業時刻を調整
+    let workEndMinutes = startMinutes + totalMinutes;
+    let effectiveWorkEndMinutes = workEndMinutes;
+    if (breakSign === '-') {
+      effectiveWorkEndMinutes = workEndMinutes - breakDiffMinutes;
+    }
+
+    // 結果オブジェクト初期化
     let calculationResult: CalculationResult = {
       late_night_hours: 0,
       inner_late_night_hours: 0,
@@ -102,235 +115,80 @@ export default function OvertimeCalculator() {
       legal_holiday_late_night_hours: 0,
     };
 
-    if (isLegalHoliday) {
+    // 深夜帯の勤務時間を計算する共通関数
+    const calculateLateNightMinutes = (start: number, end: number): number => {
       let lateNightMinutes = 0;
-      let workEndMinutes = startMinutes + totalMinutes;
-      let breakStartMinutes = 0;
-      let breakEndMinutes = 0;
-
-      if (breakSign === '-') {
-        breakStartMinutes = workEndMinutes - breakDiffMinutes;
-        breakEndMinutes = workEndMinutes;
-      }
-
-      const endTime22_15 = 22 * 60 + 15;
-      const effectiveLateNightStart = startMinutes >= lateNightEnd ? endTime22_15 : lateNightStart;
-
-      let currentTime = startMinutes;
-      for (let i = 0; i < totalMinutes; i++) {
-        const isInBreakPeriod = breakSign === '-' &&
-          currentTime >= breakStartMinutes &&
-          currentTime < breakEndMinutes;
-
-        if (!isInBreakPeriod && isInRange(currentTime, effectiveLateNightStart, lateNightEnd)) {
+      let currentTime = start;
+      const duration = end - start;
+      
+      for (let i = 0; i < duration; i++) {
+        const normalizedTime = currentTime % (24 * 60);
+        // 深夜帯: 22:00/22:15〜24:00 または 0:00〜5:00
+        const isInLateNight = normalizedTime >= LATE_NIGHT_START || normalizedTime < LATE_NIGHT_END;
+        if (isInLateNight) {
           lateNightMinutes++;
         }
-        currentTime = (currentTime + 1) % (24 * 60);
+        currentTime++;
       }
+      return lateNightMinutes;
+    };
 
-      const beforeFourAM = 4 * 60;
-      if (startMinutes < beforeFourAM) {
-        lateNightMinutes = 0;
-        let nightTime = startMinutes;
-        for (let i = 0; i < totalMinutes; i++) {
-          const isInBreakPeriod = breakSign === '-' &&
-            nightTime >= breakStartMinutes &&
-            nightTime < breakEndMinutes;
-
-          if (!isInBreakPeriod && (isInRange(nightTime, 22 * 60, 24 * 60) || isInRange(nightTime, 0, lateNightEnd))) {
-            lateNightMinutes++;
-          }
-          nightTime = (nightTime + 1) % (24 * 60);
-        }
-      }
-
+    // ========== 祝日・法定休日: 全て残業扱い ==========
+    if (isLegalHoliday || isHoliday) {
+      const lateNightMinutes = calculateLateNightMinutes(startMinutes, effectiveWorkEndMinutes);
       const lateNightHours = minutesToHours(lateNightMinutes);
       const totalHours = minutesToHours(totalWorkTime);
+      const normalHours = totalHours - lateNightHours;
 
-      calculationResult.legal_holiday_hours = totalHours - lateNightHours;
-      calculationResult.legal_holiday_late_night_hours = lateNightHours;
-    } else if (isHoliday) {
-      let lateNightMinutes = 0;
-      let workEndMinutes = startMinutes + totalMinutes;
-      let breakStartMinutes = 0;
-      let breakEndMinutes = 0;
-
-      if (breakSign === '-') {
-        breakStartMinutes = workEndMinutes - breakDiffMinutes;
-        breakEndMinutes = workEndMinutes;
-      }
-
-      const endTime22_15 = 22 * 60 + 15;
-      const effectiveLateNightStart = startMinutes >= lateNightEnd ? endTime22_15 : lateNightStart;
-
-      let currentTime = startMinutes;
-      for (let i = 0; i < totalMinutes; i++) {
-        const isInBreakPeriod = breakSign === '-' &&
-          currentTime >= breakStartMinutes &&
-          currentTime < breakEndMinutes;
-
-        if (!isInBreakPeriod && isInRange(currentTime, effectiveLateNightStart, lateNightEnd)) {
-          lateNightMinutes++;
-        }
-        currentTime = (currentTime + 1) % (24 * 60);
-      }
-
-      const lateNightHours = minutesToHours(lateNightMinutes);
-      const totalHours = minutesToHours(totalWorkTime);
-
-      calculationResult.holiday_hours = totalHours - lateNightHours;
-      calculationResult.holiday_late_night_hours = lateNightHours;
-    } else if (isSaturday) {
-      let lateNightMinutes = 0;
-      let workEndMinutes = startMinutes + totalMinutes;
-      let breakStartMinutes = 0;
-      let breakEndMinutes = 0;
-
-      if (breakSign === '-') {
-        breakStartMinutes = workEndMinutes - breakDiffMinutes;
-        breakEndMinutes = workEndMinutes;
-      }
-
-      const endTime22_15 = 22 * 60 + 15;
-      const effectiveLateNightStart = startMinutes >= lateNightEnd ? endTime22_15 : lateNightStart;
-
-      let currentTime = startMinutes;
-      for (let i = 0; i < totalMinutes; i++) {
-        const isInBreakPeriod = breakSign === '-' &&
-          currentTime >= breakStartMinutes &&
-          currentTime < breakEndMinutes;
-
-        if (!isInBreakPeriod && isInRange(currentTime, effectiveLateNightStart, lateNightEnd)) {
-          lateNightMinutes++;
-        }
-        currentTime = (currentTime + 1) % (24 * 60);
-      }
-
-      const lateNightHours = minutesToHours(lateNightMinutes);
-      const totalHours = minutesToHours(totalWorkTime);
-
-      if (isOver8Hours) {
-        const normalHours = totalHours - lateNightHours;
-        const earlyHours = Math.max(0, normalHours - 8);
-        calculationResult.saturday_hours = 8;
-        calculationResult.saturday_late_night_hours = lateNightHours;
-        calculationResult.early_hours = earlyHours + minutesToHours(transferMinutes);
+      if (isLegalHoliday) {
+        calculationResult.legal_holiday_hours = normalHours + minutesToHours(transferMinutes);
+        calculationResult.legal_holiday_late_night_hours = lateNightHours;
       } else {
-        calculationResult.saturday_hours = totalHours - lateNightHours;
-        calculationResult.saturday_late_night_hours = lateNightHours;
+        calculationResult.holiday_hours = normalHours + minutesToHours(transferMinutes);
+        calculationResult.holiday_late_night_hours = lateNightHours;
       }
-    } else {
-      if (!isOver8Hours) {
-        let innerLateNightMinutes = 0;
-        let earlyMinutes = 0;
+    }
+    // ========== 土曜: 8時間超が残業 ==========
+    else if (isSaturday) {
+      const overtimeMinutes = Math.max(0, totalWorkTime - STANDARD_WORK);
+      const lateNightMinutes = calculateLateNightMinutes(startMinutes, effectiveWorkEndMinutes);
+      
+      if (overtimeMinutes > 0) {
+        // 残業がある場合
+        // 深夜帯の時間を、残業→土曜深夜、所定内→内深夜に振り分け
+        const lateNightOvertimeMinutes = Math.min(lateNightMinutes, overtimeMinutes);
+        const innerLateNightMinutes = Math.max(0, lateNightMinutes - lateNightOvertimeMinutes);
+        const normalOvertimeMinutes = overtimeMinutes - lateNightOvertimeMinutes;
 
-        // 実労働時間を計算
-        const actualWorkMinutes = totalWorkTime;
-        const standardWorkMinutes = 8 * 60;
-        
-        // 残業時間（所定8時間を超えた分）
-        const overtimeMinutes = Math.max(0, actualWorkMinutes - standardWorkMinutes);
-
-        // 1. 休憩不足分（breakSign === '+'）の処理
-        // 残業時間分だけ、勤務開始時刻から遡って深夜帯（0:00〜5:00）に該当する分を内深夜時間に
-        if (breakSign === '+' && overtimeMinutes > 0) {
-          for (let i = 1; i <= overtimeMinutes; i++) {
-            const checkTime = (startMinutes - i + 24 * 60) % (24 * 60);
-            // 0:00〜5:00の深夜帯にあるかチェック
-            if (checkTime < lateNightEnd) {
-              innerLateNightMinutes++;
-            } else {
-              earlyMinutes++;
-            }
-          }
-        }
-
-        // 2. 実際の勤務時間内の内深夜時間（勤務開始が5:00より前の場合）
-        if (startMinutes < lateNightEnd) {
-          innerLateNightMinutes += Math.min(totalMinutes, lateNightEnd - startMinutes);
-        }
-
+        calculationResult.saturday_late_night_hours = minutesToHours(lateNightOvertimeMinutes);
+        calculationResult.saturday_hours = minutesToHours(normalOvertimeMinutes) + minutesToHours(transferMinutes);
         calculationResult.inner_late_night_hours = minutesToHours(innerLateNightMinutes);
-        calculationResult.early_hours = minutesToHours(earlyMinutes) + minutesToHours(transferMinutes);
-
-        // 3. 22:15以降の早出時間（休憩不足分がない場合）
-        const endTime22_15 = 22 * 60 + 15;
-        if (breakSign !== '+' && startMinutes >= lateNightEnd && (startMinutes + totalMinutes) > endTime22_15) {
-          const additionalEarlyMinutes = Math.max(0, (startMinutes + totalMinutes) - endTime22_15);
-          calculationResult.early_hours = minutesToHours(additionalEarlyMinutes) + minutesToHours(transferMinutes);
-        }
       } else {
-        let lateNightMinutes = 0;
-        let workEndMinutes = startMinutes + totalMinutes;
-        let breakStartMinutes = 0;
-        let breakEndMinutes = 0;
+        // 残業なし: 深夜帯は全て内深夜
+        calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes);
+      }
+    }
+    // ========== 平日: 8時間超が残業 ==========
+    else {
+      const overtimeMinutes = Math.max(0, totalWorkTime - STANDARD_WORK);
+      const lateNightMinutes = calculateLateNightMinutes(startMinutes, effectiveWorkEndMinutes);
+      
+      if (overtimeMinutes > 0) {
+        // 残業がある場合
+        // 深夜帯の時間を、残業→深夜時間、所定内→内深夜に振り分け
+        const lateNightOvertimeMinutes = Math.min(lateNightMinutes, overtimeMinutes);
+        const innerLateNightMinutes = Math.max(0, lateNightMinutes - lateNightOvertimeMinutes);
+        const normalOvertimeMinutes = overtimeMinutes - lateNightOvertimeMinutes;
 
-        if (breakSign === '-') {
-          breakStartMinutes = workEndMinutes - breakDiffMinutes;
-          breakEndMinutes = workEndMinutes;
-        }
-
-        const endTime22_15 = 22 * 60 + 15;
-        const effectiveLateNightStart = startMinutes >= lateNightEnd ? endTime22_15 : lateNightStart;
-
-        let currentTime = startMinutes;
-        for (let i = 0; i < totalMinutes; i++) {
-          const isInBreakPeriod = breakSign === '-' &&
-            currentTime >= breakStartMinutes &&
-            currentTime < breakEndMinutes;
-
-          if (!isInBreakPeriod && isInRange(currentTime, effectiveLateNightStart, lateNightEnd)) {
-            lateNightMinutes++;
-          }
-          currentTime = (currentTime + 1) % (24 * 60);
-        }
-
-        const beforeFourAM = 4 * 60;
-        if (startMinutes < beforeFourAM) {
-          lateNightMinutes = 0;
-          let nightTime = startMinutes;
-          for (let i = 0; i < totalMinutes; i++) {
-            const isInBreakPeriod = breakSign === '-' &&
-              nightTime >= breakStartMinutes &&
-              nightTime < breakEndMinutes;
-
-            if (!isInBreakPeriod && (isInRange(nightTime, 22 * 60, 24 * 60) || isInRange(nightTime, 0, lateNightEnd))) {
-              lateNightMinutes++;
-            }
-            nightTime = (nightTime + 1) % (24 * 60);
-          }
-        }
-
-        calculationResult.late_night_hours = minutesToHours(lateNightMinutes);
-
-        const standardStartTime = Math.max(startMinutes, lateNightEnd);
-        const standardEndTime = standardStartTime + standardWithBreakMinutes;
-
-        if (breakSign === '-') {
-          const overtimeStartMinutes = standardEndTime;
-          const actualEndMinutes = startMinutes + totalMinutes;
-
-          if (actualEndMinutes > overtimeStartMinutes) {
-            let earlyMinutes = 0;
-            let checkTime = overtimeStartMinutes;
-
-            while (checkTime < actualEndMinutes) {
-              const isInBreakPeriod = checkTime >= breakStartMinutes && checkTime < breakEndMinutes;
-
-              if (!isInBreakPeriod) {
-                earlyMinutes++;
-              }
-              checkTime++;
-            }
-
-            calculationResult.early_hours = minutesToHours(earlyMinutes) + minutesToHours(transferMinutes);
-          }
-        } else {
-          const totalHours = minutesToHours(totalWorkTime);
-          const lateNightHours = minutesToHours(lateNightMinutes);
-          const normalHours = totalHours - lateNightHours;
-          const earlyHours = Math.max(0, normalHours - 8);
-          calculationResult.early_hours = earlyHours + minutesToHours(transferMinutes);
+        calculationResult.late_night_hours = minutesToHours(lateNightOvertimeMinutes);
+        calculationResult.early_hours = minutesToHours(normalOvertimeMinutes) + minutesToHours(transferMinutes);
+        calculationResult.inner_late_night_hours = minutesToHours(innerLateNightMinutes);
+      } else {
+        // 残業なし: 深夜帯は全て内深夜
+        calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes);
+        // 乗り換え時間があれば早出に加算
+        if (transferMinutes > 0) {
+          calculationResult.early_hours = minutesToHours(transferMinutes);
         }
       }
     }
