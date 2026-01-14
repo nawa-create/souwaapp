@@ -73,30 +73,28 @@ export default function OvertimeCalculator() {
     const breakDiffMinutes = timeToMinutes(breakTime);
     const transferMinutes = timeToMinutes(transferTime);
 
-    // 拘束時間を計算
+    // 拘束時間を計算（日をまたぐ場合の処理）
     let totalMinutes = endMinutes - startMinutes;
     if (totalMinutes < 0) {
       totalMinutes += 24 * 60;
     }
 
-    // 実休憩時間を計算
-    // +: 休憩1時間未満（例: +0:15 → 実休憩45分）
-    // -: 休憩1時間超過（例: -0:30 → 実休憩1:30）
-    const actualBreakMinutes = breakSign === '+' 
-      ? (60 - breakDiffMinutes)
-      : (60 + breakDiffMinutes);
-
-    // 実労働時間を計算
-    const totalWorkTime = totalMinutes - actualBreakMinutes;
+    // 終了時刻（日をまたぐ場合を考慮）
+    let workEndMinutes = startMinutes + totalMinutes;
 
     // 深夜帯の設定
     const LATE_NIGHT_END = 5 * 60; // 5:00
     // 5:00より前に開始 → 22:00から深夜、5:00以降に開始 → 22:15から深夜
     const LATE_NIGHT_START = startMinutes < LATE_NIGHT_END ? 22 * 60 : 22 * 60 + 15;
-    const STANDARD_WORK = 8 * 60; // 所定労働8時間
+    const STANDARD_WITH_BREAK = 9 * 60; // 所定8時間 + 休憩基準1時間 = 9時間
+
+    // 基準終了時刻 = 開始 + 9時間
+    const standardEndMinutes = startMinutes + STANDARD_WITH_BREAK;
+
+    // 残業時間 = 終了時刻 - 基準終了時刻（マイナスなら0）
+    const overtimeMinutes = Math.max(0, workEndMinutes - standardEndMinutes);
 
     // 休憩マイナスの場合、深夜帯判定用の終業時刻を調整
-    let workEndMinutes = startMinutes + totalMinutes;
     let effectiveWorkEndMinutes = workEndMinutes;
     if (breakSign === '-') {
       effectiveWorkEndMinutes = workEndMinutes - breakDiffMinutes;
@@ -133,9 +131,17 @@ export default function OvertimeCalculator() {
       return lateNightMinutes;
     };
 
+    // 深夜帯の勤務時間を取得
+    const lateNightMinutes = calculateLateNightMinutes(startMinutes, effectiveWorkEndMinutes);
+
     // ========== 祝日・法定休日: 全て残業扱い ==========
     if (isLegalHoliday || isHoliday) {
-      const lateNightMinutes = calculateLateNightMinutes(startMinutes, effectiveWorkEndMinutes);
+      // 実休憩時間を計算
+      const actualBreakMinutes = breakSign === '+' 
+        ? (60 - breakDiffMinutes)
+        : (60 + breakDiffMinutes);
+      const totalWorkTime = totalMinutes - actualBreakMinutes;
+
       const lateNightHours = minutesToHours(lateNightMinutes);
       const totalHours = minutesToHours(totalWorkTime);
       const normalHours = totalHours - lateNightHours;
@@ -150,9 +156,6 @@ export default function OvertimeCalculator() {
     }
     // ========== 土曜: 8時間超が残業 ==========
     else if (isSaturday) {
-      const overtimeMinutes = Math.max(0, totalWorkTime - STANDARD_WORK);
-      const lateNightMinutes = calculateLateNightMinutes(startMinutes, effectiveWorkEndMinutes);
-      
       if (overtimeMinutes > 0) {
         // 残業がある場合
         // 深夜帯の時間を、残業→土曜深夜、所定内→内深夜に振り分け
@@ -170,9 +173,6 @@ export default function OvertimeCalculator() {
     }
     // ========== 平日: 8時間超が残業 ==========
     else {
-      const overtimeMinutes = Math.max(0, totalWorkTime - STANDARD_WORK);
-      const lateNightMinutes = calculateLateNightMinutes(startMinutes, effectiveWorkEndMinutes);
-      
       if (overtimeMinutes > 0) {
         // 残業がある場合
         // 深夜帯の時間を、残業→深夜時間、所定内→内深夜に振り分け
