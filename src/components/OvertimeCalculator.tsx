@@ -224,10 +224,17 @@ export default function OvertimeCalculator() {
         let innerLateNightMinutes = 0;
         let earlyMinutes = 0;
 
+        // 実労働時間を計算
+        const actualWorkMinutes = totalWorkTime;
+        const standardWorkMinutes = 8 * 60;
+        
+        // 残業時間（所定8時間を超えた分）
+        const overtimeMinutes = Math.max(0, actualWorkMinutes - standardWorkMinutes);
+
         // 1. 休憩不足分（breakSign === '+'）の処理
-        // 勤務開始時刻から遡って、深夜帯（0:00〜5:00）に該当する分を内深夜時間に
-        if (breakSign === '+' && breakDiffMinutes > 0) {
-          for (let i = 1; i <= breakDiffMinutes; i++) {
+        // 残業時間分だけ、勤務開始時刻から遡って深夜帯（0:00〜5:00）に該当する分を内深夜時間に
+        if (breakSign === '+' && overtimeMinutes > 0) {
+          for (let i = 1; i <= overtimeMinutes; i++) {
             const checkTime = (startMinutes - i + 24 * 60) % (24 * 60);
             // 0:00〜5:00の深夜帯にあるかチェック
             if (checkTime < lateNightEnd) {
