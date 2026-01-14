@@ -326,6 +326,9 @@ export default function OvertimeCalculator() {
     let breakStartMinutes = 0;
     let breakEndMinutes = 0;
     let isInnerLateNightCase = false;
+    let breakOverflowMinutes = 0;
+    let breakOverflowStart = 0;
+    let breakOverflowEnd = 0;
     const lateNightEnd = 5 * 60;
 
     if (hasData) {
@@ -355,6 +358,15 @@ export default function OvertimeCalculator() {
       const standardWithBreakMinutes = 9 * 60;
       const isOver8Hours = totalWorkTime > standardWithBreakMinutes;
       const lateNightEnd = 5 * 60;
+
+      // 休憩不足はみ出し分の計算
+      const standardEndTime = startMinutes + standardWithBreakMinutes;
+      const extensionMinutes = Math.max(0, workEndMinutes - standardEndTime);
+      if (breakSign === '+' && breakDiffMinutes > extensionMinutes) {
+        breakOverflowMinutes = breakDiffMinutes - extensionMinutes;
+        breakOverflowStart = startMinutes - breakOverflowMinutes;
+        breakOverflowEnd = startMinutes;
+      }
 
       isInnerLateNightCase = !isOver8Hours && !isSaturday && !isHoliday && !isLegalHoliday && startMinutes < lateNightEnd;
 
@@ -431,6 +443,15 @@ export default function OvertimeCalculator() {
                       style={{
                         left: `${getPosition(startMinutes)}%`,
                         width: `${getWidth(startMinutes, Math.min(lateNightEnd, workEndMinutes))}%`
+                      }}
+                    />
+                  )}
+                  {breakOverflowMinutes > 0 && breakOverflowStart < lateNightEnd && (
+                    <div
+                      className="absolute h-full bg-green-700 opacity-70"
+                      style={{
+                        left: `${getPosition(breakOverflowStart)}%`,
+                        width: `${getWidth(breakOverflowStart, Math.min(lateNightEnd, breakOverflowEnd))}%`
                       }}
                     />
                   )}
