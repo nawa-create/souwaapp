@@ -167,10 +167,12 @@ export default function OvertimeCalculator() {
       }
     }
 
-    // ========== 祝日・法定休日: 全て残業扱い ==========
+    // ========== 祝日・法定休日: 全て残業扱い（休憩を含まない） ==========
     if (isLegalHoliday || isHoliday) {
+      // 祝日・法定休日は休憩を含まない（拘束時間 = 実労働時間）
+      const totalWorkMinutes = totalMinutes;
       const lateNightHours = minutesToHours(lateNightMinutes);
-      const totalHours = minutesToHours(actualWorkMinutes);
+      const totalHours = minutesToHours(totalWorkMinutes);
       const normalHours = totalHours - lateNightHours;
 
       if (isLegalHoliday) {
@@ -372,19 +374,25 @@ export default function OvertimeCalculator() {
 
       shortageMinutes = breakSign === '+' ? breakDiffMinutes : 0;
 
-      const totalStandardMinutes = 9 * 60;
-      const blueMinutes = totalStandardMinutes - shortageMinutes;
-
-      if (isInnerLateNightCase) {
+      // 祝日・法定休日の場合は休憩を含まず、勤務時間全体を表示
+      if (isHoliday || isLegalHoliday) {
         standardStart = startMinutes;
-        standardEnd = standardStart + blueMinutes;
+        standardEnd = workEndMinutes;
       } else {
-        standardStart = startMinutes < 5 * 60 ? 5 * 60 : startMinutes;
-        standardEnd = standardStart + blueMinutes;
-      }
+        const totalStandardMinutes = 9 * 60;
+        const blueMinutes = totalStandardMinutes - shortageMinutes;
 
-      overtimeStart = standardEnd;
-      overtimeEnd = standardStart + totalStandardMinutes;
+        if (isInnerLateNightCase) {
+          standardStart = startMinutes;
+          standardEnd = standardStart + blueMinutes;
+        } else {
+          standardStart = startMinutes < 5 * 60 ? 5 * 60 : startMinutes;
+          standardEnd = standardStart + blueMinutes;
+        }
+
+        overtimeStart = standardEnd;
+        overtimeEnd = standardStart + totalStandardMinutes;
+      }
     }
 
     const getPosition = (minutes: number) => {
@@ -462,7 +470,7 @@ export default function OvertimeCalculator() {
             <div className="absolute bottom-0 left-0 right-0 h-8">
               {hasData && (
                 <>
-                  {shortageMinutes > 0 && (
+                  {shortageMinutes > 0 && !isHoliday && !isLegalHoliday && (
                     <div
                       className="absolute h-full bg-green-500 opacity-70"
                       style={{
@@ -471,6 +479,7 @@ export default function OvertimeCalculator() {
                       }}
                     />
                   )}
+                  {/* 所定労働時間（青/オレンジ/ピンク） - 先に描画 */}
                   <div
                     className={`absolute h-full opacity-70 ${
                       isLegalHoliday
@@ -486,6 +495,26 @@ export default function OvertimeCalculator() {
                       width: `${getWidth(standardStart, standardEnd)}%`
                     }}
                   />
+                  {/* 深夜帯部分（紫） - 0:00〜5:00 - 後に描画して上に表示 */}
+                  {standardStart < lateNightEnd && (
+                    <div
+                      className="absolute h-full bg-purple-500 opacity-70"
+                      style={{
+                        left: `${getPosition(standardStart)}%`,
+                        width: `${getWidth(standardStart, Math.min(lateNightEnd, standardEnd))}%`
+                      }}
+                    />
+                  )}
+                  {/* 深夜帯部分（紫） - 22:00/22:15〜24:00 - 後に描画して上に表示 */}
+                  {standardEnd > (startMinutes < lateNightEnd ? 22 * 60 : 22 * 60 + 15) && (
+                    <div
+                      className="absolute h-full bg-purple-500 opacity-70"
+                      style={{
+                        left: `${getPosition(Math.max(standardStart, startMinutes < lateNightEnd ? 22 * 60 : 22 * 60 + 15))}%`,
+                        width: `${getWidth(Math.max(standardStart, startMinutes < lateNightEnd ? 22 * 60 : 22 * 60 + 15), standardEnd)}%`
+                      }}
+                    />
+                  )}
                 </>
               )}
             </div>
@@ -513,6 +542,10 @@ export default function OvertimeCalculator() {
             <div className="flex items-center gap-1">
               <div className="w-4 h-3 bg-blue-500 opacity-70" />
               <span>所定労働時間（平日）</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-4 h-3 bg-purple-500 opacity-70" />
+              <span>深夜時間帯</span>
             </div>
             <div className="flex items-center gap-1">
               <div className="w-4 h-3 bg-orange-300 opacity-70" />
