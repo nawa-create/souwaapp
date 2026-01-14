@@ -148,6 +148,25 @@ export default function OvertimeCalculator() {
     // 深夜帯の勤務時間を取得
     const lateNightMinutes = calculateLateNightMinutes(startMinutes, effectiveWorkEndMinutes);
 
+    // 休憩不足分のはみ出し計算（breakSign === '+' の場合のみ）
+    // はみ出し = 休憩不足分 - (終了時刻 - 基準終了時刻)
+    let breakOverflowLateNightMinutes = 0;
+    if (breakSign === '+') {
+      const extensionMinutes = Math.max(0, workEndMinutes - standardEndMinutes); // 終了 - 基準終了
+      if (breakDiffMinutes > extensionMinutes) {
+        // 休憩不足分が延長時間を超えた分
+        const overflowMinutes = breakDiffMinutes - extensionMinutes;
+        // 勤務開始前に遡って深夜帯にかかる分を計算
+        for (let i = 1; i <= overflowMinutes; i++) {
+          const checkTime = (startMinutes - i + 24 * 60) % (24 * 60);
+          // 0:00〜5:00の深夜帯にあるかチェック
+          if (checkTime < LATE_NIGHT_END) {
+            breakOverflowLateNightMinutes++;
+          }
+        }
+      }
+    }
+
     // ========== 祝日・法定休日: 全て残業扱い ==========
     if (isLegalHoliday || isHoliday) {
       const lateNightHours = minutesToHours(lateNightMinutes);
@@ -173,15 +192,15 @@ export default function OvertimeCalculator() {
 
           calculationResult.saturday_late_night_hours = minutesToHours(lateNightOvertimeMinutes);
           calculationResult.saturday_hours = minutesToHours(normalOvertimeMinutes) + minutesToHours(transferMinutes);
-          calculationResult.inner_late_night_hours = minutesToHours(innerLateNightMinutes);
+          calculationResult.inner_late_night_hours = minutesToHours(innerLateNightMinutes + breakOverflowLateNightMinutes);
         } else {
           // 終了 ≤ 基準: 残業は早出帯に計上、内深夜はそのまま
           calculationResult.saturday_hours = minutesToHours(overtimeMinutes) + minutesToHours(transferMinutes);
-          calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes);
+          calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes + breakOverflowLateNightMinutes);
         }
       } else {
         // 残業なし: 内深夜のみ
-        calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes);
+        calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes + breakOverflowLateNightMinutes);
       }
     }
     // ========== 平日: 8時間超が残業 ==========
@@ -195,15 +214,15 @@ export default function OvertimeCalculator() {
 
           calculationResult.late_night_hours = minutesToHours(lateNightOvertimeMinutes);
           calculationResult.early_hours = minutesToHours(normalOvertimeMinutes) + minutesToHours(transferMinutes);
-          calculationResult.inner_late_night_hours = minutesToHours(innerLateNightMinutes);
+          calculationResult.inner_late_night_hours = minutesToHours(innerLateNightMinutes + breakOverflowLateNightMinutes);
         } else {
           // 終了 ≤ 基準: 残業は早出帯に計上、内深夜はそのまま
           calculationResult.early_hours = minutesToHours(overtimeMinutes) + minutesToHours(transferMinutes);
-          calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes);
+          calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes + breakOverflowLateNightMinutes);
         }
       } else {
         // 残業なし: 内深夜のみ
-        calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes);
+        calculationResult.inner_late_night_hours = minutesToHours(lateNightMinutes + breakOverflowLateNightMinutes);
         // 乗り換え時間があれば早出に加算
         if (transferMinutes > 0) {
           calculationResult.early_hours = minutesToHours(transferMinutes);
